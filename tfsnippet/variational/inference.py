@@ -15,6 +15,11 @@ __all__ = [
 ]
 
 
+'''
+    vi类的来源
+    搞清楚latent_log_prob log_joint
+'''
+
 class VariationalInference(object):
     """Class for variational inference."""
 
@@ -33,7 +38,7 @@ class VariationalInference(object):
         """
         self._log_joint = tf.convert_to_tensor(log_joint)
         self._latent_log_probs = tuple(tf.convert_to_tensor(t)
-                                       for t in latent_log_probs)
+                                       for t in latent_log_probs)  # tuple类型
         self._latent_log_prob = add_n_broadcast(
             self._latent_log_probs, name='latent_log_prob')
         self._axis = axis
@@ -241,7 +246,7 @@ class VariationalTrainingObjectives(object):
         Get the SGVB training objective.
 
         Returns:
-            tf.Tensor: The per-data SGVB training objective.
+            tf.Tensor: The per-data SGVB training objective.sgvb
                 It is the negative of ELBO, which should directly be minimized.
 
         See Also:
@@ -310,6 +315,27 @@ class VariationalTrainingObjectives(object):
                 axis=self._vi.axis
             )
 
+
+    @add_name_arg_doc
+    def my_vimco(self, name=None):
+        """
+        Get the VIMCO training objective.
+
+        Returns:
+            tf.Tensor: The per-data VIMCO training objective.
+
+        See Also:
+            :meth:`zhusuan.variational.ImportanceWeightedObjective.vimco`
+        """
+        _require_multi_samples(self._vi.axis, 'vimco training objective')
+        with tf.name_scope(name, default_name='my_vimco'):
+            return vimco_estimator(
+                values=self._vi.log_joint - self._vi.latent_log_prob,
+                latent_log_prob=self._vi.latent_log_prob,
+                axis=self._vi.axis
+            )
+
+
     @add_name_arg_doc
     def vimco(self, name=None):
         """
@@ -324,6 +350,7 @@ class VariationalTrainingObjectives(object):
         _require_multi_samples(self._vi.axis, 'vimco training objective')
         with tf.name_scope(name, default_name='vimco'):
             return self._vi.zs_importance_weighted_objective().vimco()
+
 
     @add_name_arg_doc
     def rws_wake(self, name=None):

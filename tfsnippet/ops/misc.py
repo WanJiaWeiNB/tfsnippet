@@ -68,7 +68,7 @@ def log_sum_exp(x, axis=None, keepdims=False, name=None):
 
 
 @add_name_arg_doc
-def log_mean_exp(x, axis=None, keepdims=False, name=None):
+def log_mean_exp(x, axis=None, to_be_changed = True,keepdims=False, name=None, ):
     """
     Compute :math:`\\log \\frac{1}{K} \\sum_{k=1}^K \\exp(x_k)`.
 
@@ -93,13 +93,23 @@ def log_mean_exp(x, axis=None, keepdims=False, name=None):
     Returns:
         tf.Tensor: The computed value.
     """
-    axis = validate_int_tuple_arg('axis', axis, nullable=True)
     x = tf.convert_to_tensor(x)
+
+    if(to_be_changed):
+        axis = validate_int_tuple_arg('axis', axis, nullable=True) # 把它变成元组
+    else:
+        x_max = tf.reduce_max(x, axis=axis, keepdims=True)
+        ret = tf.log(tf.reduce_mean(tf.exp(x - x_max), axis=axis,
+                                    keepdims=True)) + x_max
+        if not keepdims:
+            ret = tf.reduce_mean(ret, axis=axis)
+        return ret
+
     with tf.name_scope(name, default_name='log_mean_exp', values=[x]):
         x = tf.convert_to_tensor(x)
         x_max_keepdims = tf.reduce_max(x, axis=axis, keepdims=True)
         if not keepdims:
-            x_max = tf.squeeze(x_max_keepdims, axis=axis)
+            x_max = tf.squeeze(x_max_keepdims, axis=axis) # 删除张量中维度为1的
         else:
             x_max = x_max_keepdims
         mean_exp = tf.reduce_mean(tf.exp(x - x_max_keepdims), axis=axis,

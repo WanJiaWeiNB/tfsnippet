@@ -291,6 +291,11 @@ class VariationalInferenceZhuSuanTestCase(tf.test.TestCase):
             # test :meth:`VariationalTrainingObjectives.vimco`
             np.testing.assert_allclose(
                 *sess.run([zs_obj.vimco(), vi.training.vimco()]))
+            # print(zs_obj.vimco())
+            # test :meth:`VariationalTrainingObjectives.my_vimco`
+            np.testing.assert_allclose(
+                *sess.run([zs_obj.vimco(), vi.training.my_vimco()]))
+
 
     def test_klpq(self):
         with self.test_session() as sess:

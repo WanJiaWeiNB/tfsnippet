@@ -8,8 +8,78 @@ from tfsnippet.utils import (add_name_arg_doc, get_static_shape,
 from .utils import _require_multi_samples
 
 __all__ = [
-    'sgvb_estimator', 'iwae_estimator', 'nvil_estimator',
+    'sgvb_estimator', 'iwae_estimator', 'nvil_estimator', 'vimco_estimator'
 ]
+
+@add_name_arg_doc
+def vimco_estimator(values, latent_log_prob, axis=None, keepdims=False, name=None):
+    """
+    my vimco copy from zhusuan
+    do not know whether it is right
+
+    Args:
+        values: Values of the target function given `z` and `x`, i.e.,
+            :math:`f(\\mathbf{z},\\mathbf{x})`.
+        latent_log_prob: The log-densities
+                of latent variables from the variational net.
+        axis: The sampling axes to be reduced in outputs.
+            If not specified, no axis will be reduced.
+        keepdims (bool): When `axis` is specified, whether or not to keep
+            the reduced axes?  (default :obj:`False`)
+
+    Returns:
+        tf.Tensor: The surrogate for optimizing the original target.
+            Maximizing/minimizing this surrogate via gradient descent will
+            effectively maximize/minimize the original target.
+
+    """
+
+    l_signal = values
+
+    # check size along the sample axis
+    err_msg = "VIMCO is a multi-sample gradient estimator, size along " \
+              "`axis` in the objective should be larger than 1."
+    if l_signal.get_shape()[axis:axis + 1].is_fully_defined():
+        if l_signal.get_shape()[axis].value < 2:
+            raise ValueError(err_msg)
+    _assert_size_along_axis = tf.assert_greater_equal(
+        tf.shape(l_signal)[axis], 2, message=err_msg)
+    with tf.control_dependencies([_assert_size_along_axis]):
+        l_signal = tf.identity(l_signal)
+
+    # compute variance reduction term
+    mean_except_signal = (
+                                 tf.reduce_sum(l_signal, axis, keepdims=True) - l_signal
+                         ) / tf.to_float(tf.shape(l_signal)[axis] - 1)
+    x, sub_x = tf.to_float(l_signal), tf.to_float(mean_except_signal)
+
+    n_dim = tf.rank(x)
+    axis_dim_mask = tf.cast(tf.one_hot(axis, n_dim), tf.bool)
+    original_mask = tf.cast(tf.one_hot(n_dim - 1, n_dim), tf.bool)
+    axis_dim = tf.ones([n_dim], tf.int32) * axis
+    originals = tf.ones([n_dim], tf.int32) * (n_dim - 1)
+    perm = tf.where(original_mask, axis_dim, tf.range(n_dim))
+    perm = tf.where(axis_dim_mask, originals, perm)
+    multiples = tf.concat(
+        [tf.ones([n_dim], tf.int32), [tf.shape(x)[axis]]], 0)
+
+    x = tf.transpose(x, perm=perm)
+    sub_x = tf.transpose(sub_x, perm=perm)
+    x_ex = tf.tile(tf.expand_dims(x, n_dim), multiples)
+    x_ex = x_ex - tf.matrix_diag(x) + tf.matrix_diag(sub_x)
+
+    control_variate = tf.transpose(log_mean_exp(x_ex, n_dim - 1, False),
+                                   perm=perm)
+
+    # variance reduced objective
+    l_signal = log_mean_exp(l_signal, axis, False,
+                            keepdims=True) - control_variate
+    fake_term = tf.reduce_sum(
+        latent_log_prob * tf.stop_gradient(l_signal), axis)
+    cost = -fake_term - log_mean_exp(values, axis, False)
+
+    return cost
+    
 
 
 @add_name_arg_doc
@@ -21,7 +91,9 @@ def sgvb_estimator(values, axis=None, keepdims=False, name=None):
 
     .. math::
 
-        \\nabla \\, \\mathbb{E}_{q(\\mathbf{z}|\\mathbf{x})}\\big[f(\\mathbf{x},\\mathbf{z})\\big] = \\nabla \\, \\mathbb{E}_{q(\\mathbf{\\epsilon})}\\big[f(\\mathbf{x},\\mathbf{z}(\\mathbf{\\epsilon}))\\big] = \\mathbb{E}_{q(\\mathbf{\\epsilon})}\\big[\\nabla f(\\mathbf{x},\\mathbf{z}(\\mathbf{\\epsilon}))\\big]
+        \\nabla \\, \\mathbb{E}_{q(\\mathbf{z}|\\mathbf{x})}\\big[f(\\mathbf{x},\\mathbf{z})\\big]
+        = \\nabla \\, \\mathbb{E}_{q(\\mathbf{\\epsilon})}\\big[f(\\mathbf{x},\\mathbf{z}(\\mathbf{\\epsilon}))\\big]
+        = \\mathbb{E}_{q(\\mathbf{\\epsilon})}\\big[\\nabla f(\\mathbf{x},\\mathbf{z}(\\mathbf{\\epsilon}))\\big]
 
     Args:
         values: Values of the target function given `z` and `x`, i.e.,
